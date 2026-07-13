@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Job Hunting Assistant</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="panel">
+        <div class="header">
+          <div>
+            <p class="eyebrow">AI job workflow</p>
+            <h1>Job Hunting Assistant</h1>
+          </div>
+          <span class="status">DeepSeek + Sheets</span>
+        </div>
+
+        <form id="jobForm" class="composer">
+          <label for="jobText">Paste job description</label>
+          <textarea id="jobText" name="jobText" placeholder="Paste the full job post here, including company, role, contact email, URL, and description if available."></textarea>
+          <button type="submit">Analyze & Save</button>
+        </form>
+
+        <div id="message" class="message" hidden></div>
+      </section>
+
+      <section id="result" class="result" hidden>
+        <div class="score-card">
+          <span>Match Score</span>
+          <strong id="score">--</strong>
+        </div>
+
+        <div class="grid">
+          <article>
+            <h2>Job Details</h2>
+            <dl id="details"></dl>
+          </article>
+
+          <article>
+            <h2>Application Draft</h2>
+            <p id="subject" class="subject"></p>
+            <div id="emailBody" class="email-body"></div>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>
