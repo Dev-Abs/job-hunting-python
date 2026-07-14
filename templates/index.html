@@ -18,9 +18,18 @@
         </div>
 
         <form id="jobForm" class="composer">
-          <label for="jobText">Paste a job description or job listing URL</label>
-          <textarea id="jobText" name="jobText" placeholder="Paste a full job post, or paste only a public job listing URL. LinkedIn may block automatic reading, so paste the description if the URL cannot be read."></textarea>
-          <button type="submit">Analyze & Save</button>
+          <div class="mode-tabs" role="tablist" aria-label="Input mode">
+            <button class="mode-tab active" type="button" data-mode="description">Description</button>
+            <button class="mode-tab" type="button" data-mode="url">Enter URL</button>
+          </div>
+
+          <label id="jobTextLabel" for="jobText">Paste job description</label>
+          <textarea id="jobText" name="jobText" placeholder="Paste the full job post here. Include company, role, responsibilities, requirements, location, salary, contact email, and URL if available."></textarea>
+
+          <div class="form-actions">
+            <button type="submit">Analyze & Save</button>
+            <button id="discoverJobs" class="secondary" type="button">Find Matching Jobs Now</button>
+          </div>
         </form>
 
         <div id="message" class="message" hidden></div>
@@ -50,6 +59,16 @@
             <div id="emailBody" class="email-body"></div>
           </article>
         </div>
+      </section>
+
+      <section id="discoveryResult" class="result" hidden>
+        <article>
+          <div class="article-header">
+            <h2>Auto-discovered Matches</h2>
+            <span id="discoveryCount" class="pill">0 saved</span>
+          </div>
+          <div id="discoveryList" class="job-list"></div>
+        </article>
       </section>
     </main>
 

@@ -2,7 +2,7 @@ import json
 import os
 import re
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import requests
 from bs4 import BeautifulSoup
@@ -33,6 +33,18 @@ SHEET_COLUMNS = [
 
 # app
 app = Flask(__name__)
+
+DEFAULT_DISCOVERY_QUERIES = [
+    "ai automation",
+    "ai agent",
+    "python automation",
+    "junior software engineer",
+    "mern developer",
+    "react node",
+    "flutter developer",
+    "machine learning intern",
+    "digital transformation",
+]
 
 REQUEST_HEADERS = {
     "User-Agent": (
@@ -113,6 +125,20 @@ def normalize_result(raw: Dict[str, Any], job_text: str) -> Dict[str, str]:
             result[key] = str(value).strip()
 
     return result
+
+
+def parse_int_env(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except ValueError:
+        return default
+
+
+def result_score(result: Dict[str, str]) -> int:
+    try:
+        return int(float(result.get("Match Score", "0")))
+    except ValueError:
+        return 0
 
 
 def is_url_only(value: str) -> bool:
@@ -251,6 +277,7 @@ def append_to_sheet(result: Dict[str, str]) -> None:
         json={
             "columns": SHEET_COLUMNS,
             "row": result,
+            "dedupeColumn": "Job URL",
         },
         timeout=30,
     )
@@ -258,6 +285,204 @@ def append_to_sheet(result: Dict[str, str]) -> None:
     payload = response.json()
     if not payload.get("ok"):
         raise RuntimeError(payload.get("error", "Google Apps Script returned an error."))
+    if payload.get("skipped"):
+        raise RuntimeError(payload.get("message", "This job already exists in the tracker."))
+
+
+def append_many_to_sheet(results: List[Dict[str, str]]) -> Dict[str, Any]:
+    webhook_url = env_required("GOOGLE_SCRIPT_WEBHOOK_URL")
+    response = requests.post(
+        webhook_url,
+        json={
+            "columns": SHEET_COLUMNS,
+            "rows": results,
+            "dedupeColumn": "Job URL",
+        },
+        timeout=45,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not payload.get("ok"):
+        raise RuntimeError(payload.get("error", "Google Apps Script returned an error."))
+    return payload
+
+
+def summarize_text(value: str, limit: int = 1800) -> str:
+    value = BeautifulSoup(value or "", "html.parser").get_text(" ", strip=True)
+    value = re.sub(r"\s+", " ", value).strip()
+    return value[:limit]
+
+
+def candidate_from_remotive(job: Dict[str, Any]) -> Dict[str, str]:
+    return {
+        "source": "Remotive",
+        "company": str(job.get("company_name") or "Not specified"),
+        "title": str(job.get("title") or "Not specified"),
+        "location": str(job.get("candidate_required_location") or "Remote"),
+        "url": str(job.get("url") or "Not specified"),
+        "salary": str(job.get("salary") or "Not specified"),
+        "description": summarize_text(str(job.get("description") or "")),
+        "tags": ", ".join(job.get("tags") or []),
+    }
+
+
+def candidate_from_remoteok(job: Dict[str, Any]) -> Dict[str, str]:
+    tags = job.get("tags") or []
+    if isinstance(tags, str):
+        tags = [tags]
+    return {
+        "source": "RemoteOK",
+        "company": str(job.get("company") or "Not specified"),
+        "title": str(job.get("position") or job.get("title") or "Not specified"),
+        "location": str(job.get("location") or "Remote"),
+        "url": str(job.get("url") or job.get("apply_url") or "Not specified"),
+        "salary": str(job.get("salary") or "Not specified"),
+        "description": summarize_text(str(job.get("description") or "")),
+        "tags": ", ".join(tags),
+    }
+
+
+def candidate_from_arbeitnow(job: Dict[str, Any]) -> Dict[str, str]:
+    tags = job.get("tags") or []
+    if isinstance(tags, str):
+        tags = [tags]
+    return {
+        "source": "Arbeitnow",
+        "company": str(job.get("company_name") or "Not specified"),
+        "title": str(job.get("title") or "Not specified"),
+        "location": str(job.get("location") or "Not specified"),
+        "url": str(job.get("url") or "Not specified"),
+        "salary": "Not specified",
+        "description": summarize_text(str(job.get("description") or "")),
+        "tags": ", ".join(tags),
+    }
+
+
+def fetch_remotive_jobs(queries: List[str]) -> List[Dict[str, str]]:
+    jobs = []
+    for query in queries:
+        try:
+            response = requests.get(
+                "https://remotive.com/api/remote-jobs",
+                params={"search": query},
+                headers=REQUEST_HEADERS,
+                timeout=25,
+            )
+            response.raise_for_status()
+            jobs.extend(candidate_from_remotive(job) for job in response.json().get("jobs", []))
+        except Exception:
+            continue
+    return jobs
+
+
+def fetch_remoteok_jobs() -> List[Dict[str, str]]:
+    try:
+        response = requests.get("https://remoteok.com/api", headers=REQUEST_HEADERS, timeout=25)
+        response.raise_for_status()
+        payload = response.json()
+        return [candidate_from_remoteok(job) for job in payload if isinstance(job, dict) and job.get("position")]
+    except Exception:
+        return []
+
+
+def fetch_arbeitnow_jobs() -> List[Dict[str, str]]:
+    try:
+        response = requests.get("https://www.arbeitnow.com/api/job-board-api", headers=REQUEST_HEADERS, timeout=25)
+        response.raise_for_status()
+        payload = response.json()
+        return [candidate_from_arbeitnow(job) for job in payload.get("data", [])]
+    except Exception:
+        return []
+
+
+def discovery_queries() -> List[str]:
+    raw = os.environ.get("DISCOVERY_QUERIES", "")
+    if not raw.strip():
+        return DEFAULT_DISCOVERY_QUERIES
+    return [query.strip() for query in raw.split(",") if query.strip()]
+
+
+def candidate_fingerprint(candidate: Dict[str, str]) -> str:
+    url = candidate.get("url", "").lower().strip()
+    if url and url != "not specified":
+        return url
+    return f"{candidate.get('company', '').lower()}::{candidate.get('title', '').lower()}"
+
+
+def candidate_text(candidate: Dict[str, str]) -> str:
+    return "\n".join([
+        f"Source: {candidate['source']}",
+        f"Company: {candidate['company']}",
+        f"Job Title: {candidate['title']}",
+        f"Location: {candidate['location']}",
+        f"Salary: {candidate['salary']}",
+        f"Job URL: {candidate['url']}",
+        f"Tags: {candidate['tags']}",
+        f"Description: {candidate['description']}",
+    ])
+
+
+def is_interesting_candidate(candidate: Dict[str, str], profile: Dict[str, Any]) -> bool:
+    combined = candidate_text(candidate).lower()
+    preferred = " ".join(profile.get("skills", []) + profile.get("target_roles", [])).lower()
+    keywords = set(re.findall(r"[a-z0-9+#.]{3,}", preferred))
+    strong_keywords = {
+        "ai", "automation", "python", "javascript", "react", "node", "mern",
+        "flutter", "machine", "learning", "agent", "agents", "cloud", "api",
+        "junior", "intern", "trainee", "remote", "digital", "transformation",
+        "healthcare", "telecom", "twilio"
+    }
+    relocation_terms = {"relocation", "visa", "sponsorship", "worldwide", "global"}
+    pakistan_terms = {"pakistan", "islamabad", "lahore", "karachi", "rawalpindi"}
+    location_terms = relocation_terms | pakistan_terms | {"remote"}
+    keyword_hit = any(keyword in combined for keyword in strong_keywords | set(list(keywords)[:80]))
+    location_hit = any(term in combined for term in location_terms)
+    return keyword_hit and location_hit
+
+
+def discover_candidate_pool() -> List[Dict[str, str]]:
+    profile = load_profile()
+    candidates = fetch_remotive_jobs(discovery_queries()) + fetch_remoteok_jobs() + fetch_arbeitnow_jobs()
+    unique: Dict[str, Dict[str, str]] = {}
+    for candidate in candidates:
+        key = candidate_fingerprint(candidate)
+        if key and key not in unique and is_interesting_candidate(candidate, profile):
+            unique[key] = candidate
+    max_jobs = parse_int_env("DISCOVERY_MAX_CANDIDATES", 30)
+    return list(unique.values())[:max_jobs]
+
+
+def discover_best_jobs() -> Dict[str, Any]:
+    min_score = parse_int_env("DISCOVERY_MIN_SCORE", 70)
+    save_limit = parse_int_env("DISCOVERY_SAVE_LIMIT", 8)
+    analyzed = []
+    errors = []
+
+    for candidate in discover_candidate_pool():
+        try:
+            result = analyze_with_deepseek(candidate_text(candidate))
+            if result["Job URL"] == "Not specified":
+                result["Job URL"] = candidate["url"]
+            result["Status"] = "Discovered"
+            result["Notes"] = f"Auto-discovered from {candidate['source']}."
+            if result_score(result) >= min_score:
+                analyzed.append(result)
+        except Exception as error:
+            errors.append({"candidate": candidate.get("title", "Unknown"), "error": str(error)})
+
+    analyzed.sort(key=result_score, reverse=True)
+    selected = analyzed[:save_limit]
+    sheet_result = {"inserted": 0, "skipped": 0}
+    if selected:
+        sheet_result = append_many_to_sheet(selected)
+
+    return {
+        "found_candidates": len(analyzed),
+        "saved": len(selected),
+        "sheet": sheet_result,
+        "jobs": selected,
+        "errors": errors[:5],
+    }
 
 
 def make_email_draft(result: Dict[str, str]) -> Dict[str, str]:
@@ -335,6 +560,15 @@ def analyze():
         })
     except ValueError as error:
         return jsonify({"ok": False, "error": str(error), "saved": False}), 422
+    except Exception as error:
+        return jsonify({"ok": False, "error": str(error)}), 500
+
+
+@app.route("/api/discover", methods=["GET", "POST"])
+def discover():
+    try:
+        result = discover_best_jobs()
+        return jsonify({"ok": True, **result})
     except Exception as error:
         return jsonify({"ok": False, "error": str(error)}), 500
 

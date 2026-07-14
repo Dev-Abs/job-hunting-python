@@ -83,6 +83,24 @@ h2 {
   gap: 12px;
 }
 
+.mode-tabs,
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.mode-tab {
+  min-height: 38px;
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.mode-tab.active {
+  background: #0f172a;
+  color: #ffffff;
+}
+
 label {
   font-weight: 700;
   color: #334155;
@@ -198,6 +216,55 @@ article {
   justify-content: flex-end;
 }
 
+.pill {
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 0.86rem;
+  font-weight: 800;
+  padding: 7px 10px;
+}
+
+.job-list {
+  display: grid;
+  gap: 10px;
+}
+
+.job-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.job-item strong,
+.job-item span {
+  display: block;
+}
+
+.job-item span {
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.job-meta {
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+  white-space: nowrap;
+}
+
+.job-meta a {
+  color: #2563eb;
+  font-weight: 700;
+  text-decoration: none;
+}
+
 dl {
   display: grid;
   grid-template-columns: 140px 1fr;
@@ -239,5 +306,14 @@ dd {
 
   dl {
     grid-template-columns: 1fr;
+  }
+
+  .job-item {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .job-meta {
+    justify-items: start;
   }
 }

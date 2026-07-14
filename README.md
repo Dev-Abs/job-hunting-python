@@ -10,10 +10,13 @@ You paste a job description or a public job listing URL into the web chat-style 
 4. Appends the result to Google Sheets through a free Google Apps Script webhook.
 5. Generates a tailored application email draft.
 6. Lets you copy the draft or open a Gmail compose window.
+7. Can automatically discover strong-match jobs daily from public job sources.
 
 The app validates input before saving. If the text or URL does not contain enough real job detail, it will not save a row or generate a draft.
 
 URL note: LinkedIn and some job boards block automated public reads. If a URL cannot be read, paste the job description text instead.
+
+Auto-discovery looks for remote/worldwide jobs, relocation-friendly roles where visible, and Pakistan onsite roles when available from public sources. It ranks jobs using DeepSeek and saves only the strongest matches.
 
 ## Google Sheet Columns
 
@@ -51,6 +54,15 @@ DEEPSEEK_MODEL=deepseek-chat
 GOOGLE_SCRIPT_WEBHOOK_URL
 ```
 
+Optional auto-discovery settings:
+
+```text
+DISCOVERY_MIN_SCORE=70
+DISCOVERY_SAVE_LIMIT=8
+DISCOVERY_MAX_CANDIDATES=30
+DISCOVERY_QUERIES=ai automation,ai agent,python automation,junior software engineer,mern developer,react node,flutter developer,machine learning intern,digital transformation
+```
+
 ## Google Apps Script Setup
 
 This avoids Google Cloud service accounts and billing setup.
@@ -67,7 +79,8 @@ function doPost(e) {
     const payload = JSON.parse(e.postData.contents);
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
     const columns = payload.columns || [];
-    const rowObject = payload.row || {};
+    const rows = payload.rows || (payload.row ? [payload.row] : []);
+    const dedupeColumn = payload.dedupeColumn || "Job URL";
 
     const existingHeader = sheet.getRange(1, 1, 1, columns.length).getValues()[0];
     const headerMissing = existingHeader.join("") === "" || existingHeader.join("|") !== columns.join("|");
@@ -77,11 +90,45 @@ function doPost(e) {
       sheet.setFrozenRows(1);
     }
 
-    const row = columns.map((column) => rowObject[column] || "Not specified");
-    sheet.appendRow(row);
+    const dedupeIndex = columns.indexOf(dedupeColumn);
+    const existingValues = new Set();
+
+    if (dedupeIndex >= 0 && sheet.getLastRow() > 1) {
+      const values = sheet
+        .getRange(2, dedupeIndex + 1, sheet.getLastRow() - 1, 1)
+        .getValues()
+        .flat()
+        .filter(Boolean)
+        .map(String);
+
+      values.forEach((value) => existingValues.add(value));
+    }
+
+    const valuesToAppend = [];
+    let skipped = 0;
+
+    rows.forEach((rowObject) => {
+      const dedupeValue = dedupeIndex >= 0 ? String(rowObject[dedupeColumn] || "") : "";
+      if (dedupeValue && existingValues.has(dedupeValue)) {
+        skipped += 1;
+        return;
+      }
+
+      if (dedupeValue) {
+        existingValues.add(dedupeValue);
+      }
+
+      valuesToAppend.push(columns.map((column) => rowObject[column] || "Not specified"));
+    });
+
+    if (valuesToAppend.length) {
+      sheet
+        .getRange(sheet.getLastRow() + 1, 1, valuesToAppend.length, columns.length)
+        .setValues(valuesToAppend);
+    }
 
     return ContentService
-      .createTextOutput(JSON.stringify({ ok: true }))
+      .createTextOutput(JSON.stringify({ ok: true, inserted: valuesToAppend.length, skipped }))
       .setMimeType(ContentService.MimeType.JSON);
   } catch (error) {
     return ContentService
@@ -97,6 +144,12 @@ function doPost(e) {
 7. Set **Who has access**: `Anyone`.
 8. Click **Deploy**.
 9. Copy the Web app URL. This is your `GOOGLE_SCRIPT_WEBHOOK_URL`.
+
+Important: if you already deployed the old script, replace it with this updated script and deploy a **new version**:
+
+```text
+Deploy > Manage deployments > Edit > Version > New version > Deploy
+```
 
 ## Local Run
 
@@ -130,6 +183,14 @@ http://localhost:5000
 4. Framework preset can stay as **Other**.
 5. Add the environment variables listed above.
 6. Deploy.
+
+Daily auto-discovery is configured in `vercel.json`:
+
+```text
+0 4 * * *
+```
+
+That means Vercel calls `/api/discover` daily at 04:00 UTC. You can also run discovery manually from the web page using **Find Matching Jobs Now**.
 
 This project includes:
 
@@ -168,3 +229,4 @@ The included `render.yaml` can also be used as a Render Blueprint.
 - This app does not need a Google Cloud billing account.
 - If Google Sheets fails, check that the Apps Script deployment access is set to `Anyone`.
 - If DeepSeek fails, check `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`, and `DEEPSEEK_MODEL`.
+- If URL reading fails for LinkedIn or gated job boards, paste the job description text instead.

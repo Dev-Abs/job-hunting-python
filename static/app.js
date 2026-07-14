@@ -8,8 +8,15 @@ const subject = document.querySelector("#subject");
 const emailBody = document.querySelector("#emailBody");
 const copyDraft = document.querySelector("#copyDraft");
 const openGmail = document.querySelector("#openGmail");
-const button = form.querySelector("button");
+const modeTabs = document.querySelectorAll(".mode-tab");
+const jobTextLabel = document.querySelector("#jobTextLabel");
+const discoverJobs = document.querySelector("#discoverJobs");
+const discoveryResult = document.querySelector("#discoveryResult");
+const discoveryCount = document.querySelector("#discoveryCount");
+const discoveryList = document.querySelector("#discoveryList");
+const submitButton = form.querySelector("button[type='submit']");
 let currentDraft = null;
+let inputMode = "description";
 
 const detailKeys = [
   "Company",
@@ -51,6 +58,28 @@ function renderResult(data) {
   result.hidden = false;
 }
 
+function setInputMode(mode) {
+  inputMode = mode;
+  modeTabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.mode === mode));
+  if (mode === "url") {
+    jobTextLabel.textContent = "Enter job listing URL";
+    textarea.placeholder = "Paste a public job listing URL. If LinkedIn or another site blocks reading, paste the full description instead.";
+    textarea.value = "";
+    textarea.style.minHeight = "88px";
+  } else {
+    jobTextLabel.textContent = "Paste job description";
+    textarea.placeholder = "Paste the full job post here. Include company, role, responsibilities, requirements, location, salary, contact email, and URL if available.";
+    textarea.value = "";
+    textarea.style.minHeight = "";
+  }
+  result.hidden = true;
+  discoveryResult.hidden = true;
+}
+
+modeTabs.forEach((tab) => {
+  tab.addEventListener("click", () => setInputMode(tab.dataset.mode));
+});
+
 function draftText() {
   if (!currentDraft) return "";
   return `Subject: ${currentDraft.subject}\n\n${currentDraft.plain_body}`;
@@ -76,12 +105,16 @@ openGmail.addEventListener("click", () => {
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const jobText = textarea.value.trim();
+  if (inputMode === "url" && !/^https?:\/\/\S+$/i.test(jobText)) {
+    showMessage("Enter a valid public job listing URL.", true);
+    return;
+  }
   if (jobText.length < 12) {
-    showMessage("Paste a job description or a job listing URL first.", true);
+    showMessage("Add a job description or a job listing URL first.", true);
     return;
   }
 
-  button.disabled = true;
+  submitButton.disabled = true;
   showMessage("Analyzing with DeepSeek and saving to Google Sheets...");
 
   try {
@@ -100,6 +133,55 @@ form.addEventListener("submit", async (event) => {
   } catch (error) {
     showMessage(error.message, true);
   } finally {
-    button.disabled = false;
+    submitButton.disabled = false;
+  }
+});
+
+function renderDiscovery(data) {
+  const jobs = data.jobs || [];
+  discoveryCount.textContent = `${data.saved || 0} saved`;
+  discoveryList.innerHTML = "";
+
+  if (!jobs.length) {
+    discoveryList.innerHTML = "<p>No strong new matches found this time.</p>";
+  }
+
+  for (const job of jobs) {
+    const item = document.createElement("div");
+    item.className = "job-item";
+    const link = job["Job URL"] && job["Job URL"] !== "Not specified"
+      ? `<a href="${job["Job URL"]}" target="_blank" rel="noopener noreferrer">Open listing</a>`
+      : "";
+    item.innerHTML = `
+      <div>
+        <strong>${job["Job Title"] || "Not specified"}</strong>
+        <span>${job["Company"] || "Not specified"} · ${job["Location"] || "Not specified"}</span>
+      </div>
+      <div class="job-meta">
+        <span>${job["Match Score"] || "--"}/100</span>
+        ${link}
+      </div>
+    `;
+    discoveryList.appendChild(item);
+  }
+
+  discoveryResult.hidden = false;
+}
+
+discoverJobs.addEventListener("click", async () => {
+  discoverJobs.disabled = true;
+  showMessage("Searching remote/worldwide/Pakistan jobs, ranking matches, and saving strong fits...");
+  try {
+    const response = await fetch("/api/discover", { method: "POST" });
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || "Discovery failed.");
+    }
+    showMessage(`Discovery complete. Saved ${data.saved || 0} best matches to Google Sheets.`);
+    renderDiscovery(data);
+  } catch (error) {
+    showMessage(error.message, true);
+  } finally {
+    discoverJobs.disabled = false;
   }
 });
