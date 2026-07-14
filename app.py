@@ -361,6 +361,44 @@ def candidate_from_arbeitnow(job: Dict[str, Any]) -> Dict[str, str]:
     }
 
 
+def candidate_from_serpapi(job: Dict[str, Any]) -> Dict[str, str]:
+    apply_options = job.get("apply_options") or []
+    apply_url = apply_options[0].get("link") if apply_options and isinstance(apply_options[0], dict) else ""
+    detected = job.get("detected_extensions") or {}
+    source = str(job.get("via") or "Google Jobs")
+    return {
+        "source": f"Google Jobs / {source}",
+        "company": str(job.get("company_name") or "Not specified"),
+        "title": str(job.get("title") or "Not specified"),
+        "location": str(job.get("location") or "Not specified"),
+        "url": str(apply_url or job.get("share_link") or job.get("link") or "Not specified"),
+        "salary": str(detected.get("salary") or job.get("salary") or "Not specified"),
+        "description": summarize_text(str(job.get("description") or "")),
+        "tags": ", ".join(job.get("extensions") or []),
+    }
+
+
+def candidate_from_adzuna(job: Dict[str, Any]) -> Dict[str, str]:
+    location = job.get("location") or {}
+    if isinstance(location, dict):
+        location = location.get("display_name") or location.get("area") or "Not specified"
+    category = job.get("category") or {}
+    category_name = category.get("label") if isinstance(category, dict) else category
+    company = job.get("company") or {}
+    if isinstance(company, dict):
+        company = company.get("display_name")
+    return {
+        "source": "Adzuna",
+        "company": str(company or "Not specified"),
+        "title": str(job.get("title") or "Not specified"),
+        "location": str(location),
+        "url": str(job.get("redirect_url") or job.get("url") or "Not specified"),
+        "salary": str(job.get("salary_min") or job.get("salary_max") or "Not specified"),
+        "description": summarize_text(str(job.get("description") or "")),
+        "tags": str(category_name or ""),
+    }
+
+
 def fetch_remotive_jobs(queries: List[str]) -> List[Dict[str, str]]:
     jobs = []
     for query in queries:
@@ -396,6 +434,61 @@ def fetch_arbeitnow_jobs() -> List[Dict[str, str]]:
         return [candidate_from_arbeitnow(job) for job in payload.get("data", [])]
     except Exception:
         return []
+
+
+def fetch_serpapi_jobs(queries: List[str]) -> List[Dict[str, str]]:
+    api_key = os.environ.get("SERPAPI_KEY", "").strip()
+    if not api_key:
+        return []
+    jobs = []
+    for query in queries:
+        try:
+            response = requests.get(
+                "https://serpapi.com/search.json",
+                params={
+                    "engine": "google_jobs",
+                    "q": f"{query} remote worldwide Pakistan",
+                    "api_key": api_key,
+                    "hl": "en",
+                    "gl": "pk",
+                },
+                headers=REQUEST_HEADERS,
+                timeout=30,
+            )
+            response.raise_for_status()
+            jobs.extend(candidate_from_serpapi(job) for job in response.json().get("jobs_results", []))
+        except Exception:
+            continue
+    return jobs
+
+
+def fetch_adzuna_jobs(queries: List[str]) -> List[Dict[str, str]]:
+    app_id = os.environ.get("ADZUNA_APP_ID", "").strip()
+    app_key = os.environ.get("ADZUNA_APP_KEY", "").strip()
+    if not app_id or not app_key:
+        return []
+    countries = [item.strip().lower() for item in os.environ.get("ADZUNA_COUNTRIES", "gb,us,ca,au,in,sg").split(",") if item.strip()]
+    jobs = []
+    for country in countries:
+        for query in queries[:5]:
+            try:
+                response = requests.get(
+                    f"https://api.adzuna.com/v1/api/jobs/{country}/search/1",
+                    params={
+                        "app_id": app_id,
+                        "app_key": app_key,
+                        "results_per_page": 20,
+                        "what": query,
+                        "content-type": "application/json",
+                    },
+                    headers=REQUEST_HEADERS,
+                    timeout=30,
+                )
+                response.raise_for_status()
+                jobs.extend(candidate_from_adzuna(job) for job in response.json().get("results", []))
+            except Exception:
+                continue
+    return jobs
 
 
 def discovery_queries() -> List[str]:
@@ -445,13 +538,20 @@ def is_interesting_candidate(candidate: Dict[str, str], profile: Dict[str, Any])
 
 def discover_candidate_pool() -> List[Dict[str, str]]:
     profile = load_profile()
-    candidates = fetch_remotive_jobs(discovery_queries()) + fetch_remoteok_jobs() + fetch_arbeitnow_jobs()
+    queries = discovery_queries()
+    candidates = (
+        fetch_remotive_jobs(queries)
+        + fetch_remoteok_jobs()
+        + fetch_arbeitnow_jobs()
+        + fetch_serpapi_jobs(queries)
+        + fetch_adzuna_jobs(queries)
+    )
     unique: Dict[str, Dict[str, str]] = {}
     for candidate in candidates:
         key = candidate_fingerprint(candidate)
         if key and key not in unique and is_interesting_candidate(candidate, profile):
             unique[key] = candidate
-    max_jobs = parse_int_env("DISCOVERY_MAX_CANDIDATES", 30)
+    max_jobs = parse_int_env("DISCOVERY_MAX_CANDIDATES", 60)
     return list(unique.values())[:max_jobs]
 
 
@@ -499,6 +599,7 @@ def heuristic_result_from_candidate(candidate: Dict[str, str]) -> Dict[str, str]
         "Contact Email": "Not specified",
         "Cover Letter Angle": "Lead with software development, AI automation, and practical project experience.",
         "Notes": f"Auto-discovered from {candidate.get('source', 'public job source')} using fallback scoring.",
+        "Source": candidate.get("source", "Public job source"),
     }
 
 
@@ -506,7 +607,7 @@ def discover_best_jobs(save_matches: bool) -> Dict[str, Any]:
     min_score = parse_int_env("DISCOVERY_MIN_SCORE", 55)
     save_limit = parse_int_env("DISCOVERY_SAVE_LIMIT", 8)
     fallback_save_count = parse_int_env("DISCOVERY_FALLBACK_SAVE_COUNT", 5)
-    dashboard_limit = parse_int_env("DISCOVERY_DASHBOARD_LIMIT", 30)
+    dashboard_limit = parse_int_env("DISCOVERY_DASHBOARD_LIMIT", 60)
     candidates = discover_candidate_pool()
     analyzed = []
     errors = []
@@ -520,6 +621,7 @@ def discover_best_jobs(save_matches: bool) -> Dict[str, Any]:
                 result["Job URL"] = candidate["url"]
             result["Status"] = "Discovered"
             result["Notes"] = f"Auto-discovered from {candidate['source']}."
+            result["Source"] = candidate["source"]
             analyzed.append(result)
             deepseek_success += 1
         except Exception as error:
@@ -550,6 +652,7 @@ def discover_best_jobs(save_matches: bool) -> Dict[str, Any]:
         "saved": sheet_result.get("inserted", 0),
         "skipped": sheet_result.get("skipped", 0),
         "auto_saved": save_matches,
+        "sources": sorted({job.get("Source", "Public source") for job in analyzed}),
         "sheet": sheet_result,
         "jobs": (selected if save_matches else analyzed[:dashboard_limit]),
         "errors": errors[:5],

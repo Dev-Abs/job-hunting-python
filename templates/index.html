@@ -3,75 +3,83 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Job Hunting Assistant</title>
+    <title>Career Signal</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
   </head>
   <body>
     <main class="app-shell">
-      <section class="panel">
-        <div class="header">
+      <header class="topbar">
+        <div class="brand-lockup">
+          <div class="brand-mark">CS</div>
           <div>
-            <p class="eyebrow">AI job workflow</p>
-            <h1>Job Hunting Assistant</h1>
+            <p class="eyebrow">Personal career workspace</p>
+            <h1>Career Signal</h1>
           </div>
-          <span class="status">DeepSeek + Sheets</span>
         </div>
+        <div class="topbar-meta"><span class="live-dot"></span> DeepSeek + Sheets</div>
+      </header>
 
-        <form id="jobForm" class="composer">
-          <div class="mode-tabs" role="tablist" aria-label="Input mode">
-            <button class="mode-tab active" type="button" data-mode="description">Description</button>
-            <button class="mode-tab" type="button" data-mode="url">Enter URL</button>
-          </div>
-
-          <label id="jobTextLabel" for="jobText">Paste job description</label>
-          <textarea id="jobText" name="jobText" placeholder="Paste the full job post here. Include company, role, responsibilities, requirements, location, salary, contact email, and URL if available."></textarea>
-
-          <div class="form-actions">
-            <button type="submit">Analyze & Save</button>
-            <button id="discoverJobs" class="secondary" type="button">Find Matching Jobs Now</button>
-          </div>
-        </form>
-
-        <div id="message" class="message" hidden></div>
+      <section class="hero-strip">
+        <div>
+          <p class="eyebrow">Your next move, made clearer</p>
+          <h2>Find work that fits the way you build.</h2>
+          <p>Bring a listing into focus, or scan the wider market and review every match in one calm workspace.</p>
+        </div>
+        <button id="discoverJobs" class="primary-button hero-button" type="button"><span>✦</span> Find matching jobs now</button>
       </section>
 
-      <section id="result" class="result" hidden>
-        <div class="score-card">
-          <span>Match Score</span>
-          <strong id="score">--</strong>
-        </div>
+      <div id="message" class="message" hidden></div>
 
-        <div class="grid">
-          <article>
-            <h2>Job Details</h2>
-            <dl id="details"></dl>
-          </article>
-
-          <article>
-            <div class="article-header">
-              <h2>Application Draft</h2>
-              <div class="actions">
-                <button id="copyDraft" class="secondary" type="button">Copy</button>
-                <button id="openGmail" class="secondary" type="button">Open in Gmail</button>
-              </div>
+      <section class="workspace-grid">
+        <aside class="control-panel panel">
+          <div class="section-heading">
+            <div>
+              <p class="kicker">Add a lead</p>
+              <h2>Analyze a job</h2>
             </div>
-            <p id="subject" class="subject"></p>
-            <div id="emailBody" class="email-body"></div>
-          </article>
-        </div>
-      </section>
+            <span class="step-mark">01</span>
+          </div>
+          <div class="mode-tabs" role="tablist" aria-label="Input type">
+            <button class="mode-tab active" data-mode="description" type="button">Description</button>
+            <button class="mode-tab" data-mode="url" type="button">Listing URL</button>
+          </div>
+          <form id="jobForm" class="composer">
+            <label id="jobTextLabel" for="jobText">Paste job description</label>
+            <textarea id="jobText" name="jobText" placeholder="Paste the full job post here. Include the role, company, location, requirements, and link if available."></textarea>
+            <button type="submit" class="primary-button">Analyze & save <span>→</span></button>
+          </form>
+          <div class="helper-row"><span>Only real job details are analyzed.</span><span>Private by design.</span></div>
+        </aside>
 
-      <section id="discoveryResult" class="result" hidden>
-        <article>
-          <div class="article-header">
-            <h2>Auto-discovered Matches</h2>
-            <span id="discoveryCount" class="pill">0 saved</span>
+        <section id="discoveryResult" class="dashboard panel" hidden>
+          <div class="section-heading dashboard-heading">
+            <div>
+              <p class="kicker">Discovery desk</p>
+              <h2>All matching jobs <span id="discoveryCount" class="count-badge">0</span></h2>
+            </div>
+            <span class="step-mark">02</span>
+          </div>
+          <div class="dashboard-toolbar">
+            <label class="search-field"><span>⌕</span><input id="jobSearch" type="search" placeholder="Search title, company, or skill"></label>
+            <select id="sourceFilter" aria-label="Filter by source"><option value="">All sources</option></select>
+            <select id="scoreFilter" aria-label="Filter by score"><option value="0">Any score</option><option value="70">70+ match</option><option value="55">55+ match</option></select>
+            <select id="sortJobs" aria-label="Sort jobs"><option value="score">Best match</option><option value="newest">Newest first</option><option value="company">Company A-Z</option></select>
           </div>
           <div id="discoveryList" class="job-list"></div>
-        </article>
+        </section>
+      </section>
+
+      <section id="result" class="result panel" hidden>
+        <div class="result-heading"><div><p class="kicker">Analysis complete</p><h2>One job, properly understood</h2></div><span id="score" class="large-score">--</span></div>
+        <div class="analysis-grid">
+          <article class="subpanel"><h3>Job details</h3><dl id="details"></dl></article>
+          <article class="subpanel draft-panel">
+            <div class="article-header"><h3>Application draft</h3><div class="actions"><button id="copyDraft" class="secondary" type="button">Copy</button><button id="openGmail" class="secondary" type="button">Open Gmail</button></div></div>
+            <p id="subject" class="subject"></p><div id="emailBody" class="email-body"></div>
+          </article>
+        </div>
       </section>
     </main>
-
     <script src="{{ url_for('static', filename='app.js') }}"></script>
   </body>
 </html>

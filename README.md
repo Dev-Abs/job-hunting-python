@@ -78,9 +78,23 @@ Optional auto-discovery settings:
 DISCOVERY_MIN_SCORE=55
 DISCOVERY_SAVE_LIMIT=8
 DISCOVERY_FALLBACK_SAVE_COUNT=5
-DISCOVERY_MAX_CANDIDATES=30
+DISCOVERY_MAX_CANDIDATES=60
+DISCOVERY_DASHBOARD_LIMIT=60
 DISCOVERY_QUERIES=ai automation,ai agent,python automation,junior software engineer,mern developer,react node,flutter developer,machine learning intern,digital transformation
 ```
+
+The discovery desk currently checks Remotive, RemoteOK, and Arbeitnow without extra credentials. For broader coverage, add the optional providers below:
+
+```text
+SERPAPI_KEY=your_serpapi_key
+ADZUNA_APP_ID=your_adzuna_app_id
+ADZUNA_APP_KEY=your_adzuna_app_key
+ADZUNA_COUNTRIES=gb,us,ca,au,in,sg
+```
+
+SerpApi's Google Jobs connector can return listings published through sources such as Indeed, Glassdoor, Wellfound, and other boards; each result is labeled with its publisher in the dashboard. Adzuna adds another international job index. These are optional because they have their own usage limits and credentials. The app does not directly scrape blocked job boards.
+
+When you click **Find matching jobs now**, the app returns all discovered jobs that pass the profile relevance filter in the dashboard. Manual discovery does not save automatically; use **Save to Sheets** on individual cards. The scheduled Vercel Cron run still saves the top matches automatically.
 
 ## Google Apps Script Setup
 
