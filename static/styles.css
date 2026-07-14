@@ -117,6 +117,18 @@ button {
   cursor: pointer;
 }
 
+button.secondary {
+  min-height: 36px;
+  padding: 0 12px;
+  background: #e2e8f0;
+  color: #0f172a;
+  font-size: 0.9rem;
+}
+
+button.secondary:hover {
+  background: #cbd5e1;
+}
+
 button:disabled {
   cursor: wait;
   background: #94a3b8;
@@ -165,6 +177,25 @@ button:disabled {
 
 article {
   padding: 20px;
+}
+
+.article-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.article-header h2 {
+  margin-bottom: 0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 dl {

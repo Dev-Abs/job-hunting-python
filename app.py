@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Dict
 
 import requests
+from bs4 import BeautifulSoup
 from flask import Flask, jsonify, render_template, request
 
 
@@ -32,6 +33,15 @@ SHEET_COLUMNS = [
 
 # app
 app = Flask(__name__)
+
+REQUEST_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/126.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
 
 
 def load_profile() -> Dict[str, Any]:
@@ -105,6 +115,73 @@ def normalize_result(raw: Dict[str, Any], job_text: str) -> Dict[str, str]:
     return result
 
 
+def is_url_only(value: str) -> bool:
+    return bool(re.fullmatch(r"https?://\S+", value.strip(), flags=re.IGNORECASE))
+
+
+def fetch_job_page(url: str) -> str:
+    response = requests.get(url, headers=REQUEST_HEADERS, timeout=25)
+    response.raise_for_status()
+
+    content_type = response.headers.get("content-type", "")
+    if "text/html" not in content_type and "application/xhtml" not in content_type:
+        raise RuntimeError("The URL did not return an HTML job page. Please paste the job description instead.")
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    for element in soup(["script", "style", "noscript", "svg", "iframe", "header", "footer", "nav"]):
+        element.decompose()
+
+    page_title = soup.title.get_text(" ", strip=True) if soup.title else ""
+    meta_description = ""
+    meta_tag = soup.find("meta", attrs={"name": "description"}) or soup.find("meta", attrs={"property": "og:description"})
+    if meta_tag and meta_tag.get("content"):
+        meta_description = meta_tag["content"].strip()
+
+    body_text = soup.get_text("\n", strip=True)
+    body_text = re.sub(r"\n{3,}", "\n\n", body_text)
+    extracted = f"Source URL: {url}\nPage title: {page_title}\nMeta description: {meta_description}\n\n{body_text}"
+
+    if len(extracted) > 16000:
+        extracted = extracted[:16000]
+
+    if len(extracted.strip()) < 400:
+        raise RuntimeError("I could not read enough job details from this URL. Please paste the job description.")
+
+    return extracted
+
+
+def prepare_job_input(user_input: str) -> Dict[str, str]:
+    if is_url_only(user_input):
+        try:
+            return {
+                "source_type": "url",
+                "source_input": user_input,
+                "analysis_text": fetch_job_page(user_input),
+            }
+        except requests.HTTPError as error:
+            if "linkedin.com" in user_input.lower():
+                raise RuntimeError(
+                    "LinkedIn often blocks public scraping. Please paste the job description text, "
+                    "or use a publicly readable job listing URL."
+                ) from error
+            raise RuntimeError("Could not fetch this job URL. Please paste the job description text.") from error
+    return {
+        "source_type": "text",
+        "source_input": user_input,
+        "analysis_text": user_input,
+    }
+
+
+def is_valid_analysis(raw: Dict[str, Any], result: Dict[str, str]) -> bool:
+    if raw.get("is_valid_job_post") is False:
+        return False
+    has_title = result["Job Title"] != "Not specified"
+    has_company = result["Company"] != "Not specified"
+    has_skills = result["Required Skills"] != "Not specified"
+    has_reason = result["Why Good Fit"] != "Not specified"
+    return (has_title or has_company) and (has_skills or has_reason)
+
+
 def analyze_with_deepseek(job_text: str) -> Dict[str, str]:
     profile = load_profile()
     api_key = env_required("DEEPSEEK_API_KEY")
@@ -122,9 +199,13 @@ Abdullah profile:
 Return JSON with exactly these keys:
 company, job_title, location, remote_type, salary, job_url, required_skills,
 match_score, why_good_fit, missing_skills, status, next_action,
-contact_email, cover_letter_angle, notes.
+contact_email, cover_letter_angle, notes, is_valid_job_post, validation_reason.
 
 Rules:
+- Only analyze real job descriptions or real job listing pages.
+- If the input is vague, unrelated, blocked, or does not contain enough job details,
+  set is_valid_job_post to false and explain why in validation_reason.
+- Do not invent company, role, skills, salary, or summary details.
 - match_score must be a number from 0 to 100.
 - status defaults to "Interested".
 - required_skills and missing_skills must be arrays of short strings.
@@ -155,7 +236,12 @@ Rules:
     )
     response.raise_for_status()
     content = response.json()["choices"][0]["message"]["content"]
-    return normalize_result(extract_json_object(content), job_text)
+    raw = extract_json_object(content)
+    result = normalize_result(raw, job_text)
+    if not is_valid_analysis(raw, result):
+        reason = raw.get("validation_reason") or "This does not look like a complete job description."
+        raise ValueError(str(reason))
+    return result
 
 
 def append_to_sheet(result: Dict[str, str]) -> None:
@@ -175,12 +261,28 @@ def append_to_sheet(result: Dict[str, str]) -> None:
 
 
 def make_email_draft(result: Dict[str, str]) -> Dict[str, str]:
-    company = result["Company"] if result["Company"] != "Not specified" else "your company"
-    title = result["Job Title"] if result["Job Title"] != "Not specified" else "the role"
+    company = result["Company"]
+    title = result["Job Title"]
     skills = result["Required Skills"] if result["Required Skills"] != "Not specified" else "software development, automation, and AI-focused problem solving"
 
     subject = f"Application for {title} - Abdullah"
-    body = f"""
+    plain_body = f"""Hi Hiring Team,
+
+I hope you are doing well.
+
+I am writing to express my interest in the {title} position at {company}. The role stood out to me because it aligns with my background in {skills}.
+
+My experience includes software development, AI-driven workflow projects, MERN stack development, Flutter work, and integrating AI agents with tools such as Twilio and ElevenLabs. I am especially interested in roles where I can build practical solutions, automate workflows, and contribute to meaningful digital transformation.
+
+I would appreciate the opportunity to discuss how my experience and projects could fit this role.
+
+Kind regards,
+Muhammad Abdullah Ubaidullah
+abdullah.devorbit@gmail.com
+linkedin.com/in/muhammadabdullahubaid/
+""".strip()
+
+    html_body = f"""
 <p>Hi Hiring Team,</p>
 
 <p>I hope you are doing well.</p>
@@ -198,7 +300,7 @@ abdullah.devorbit@gmail.com<br>
 linkedin.com/in/muhammadabdullahubaid/
 </p>
 """.strip()
-    return {"subject": subject, "body": body}
+    return {"subject": subject, "body": html_body, "plain_body": plain_body}
 
 
 @app.get("/")
@@ -214,15 +316,25 @@ def health():
 @app.post("/api/analyze")
 def analyze():
     payload = request.get_json(silent=True) or {}
-    job_text = str(payload.get("job_text", "")).strip()
-    if len(job_text) < 40:
-        return jsonify({"ok": False, "error": "Please paste a fuller job description."}), 400
+    user_input = str(payload.get("job_text", "")).strip()
+    if len(user_input) < 12:
+        return jsonify({"ok": False, "error": "Paste a job description or a job listing URL."}), 400
 
     try:
-        result = analyze_with_deepseek(job_text)
+        prepared_input = prepare_job_input(user_input)
+        result = analyze_with_deepseek(prepared_input["analysis_text"])
+        if result["Job URL"] == "Not specified" and prepared_input["source_type"] == "url":
+            result["Job URL"] = prepared_input["source_input"]
         append_to_sheet(result)
         email_draft = make_email_draft(result)
-        return jsonify({"ok": True, "analysis": result, "email_draft": email_draft})
+        return jsonify({
+            "ok": True,
+            "analysis": result,
+            "email_draft": email_draft,
+            "source_type": prepared_input["source_type"],
+        })
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error), "saved": False}), 422
     except Exception as error:
         return jsonify({"ok": False, "error": str(error)}), 500
 

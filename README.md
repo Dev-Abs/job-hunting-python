@@ -2,12 +2,18 @@
 
 This is a deployable Python replacement for the n8n job hunting workflow.
 
-You paste a job description into the web chat-style form. The app:
+You paste a job description or a public job listing URL into the web chat-style form. The app:
 
-1. Sends the job description to DeepSeek.
-2. Analyzes the role against Abdullah's resume profile.
-3. Appends the result to Google Sheets through a free Google Apps Script webhook.
-4. Generates a tailored application email draft.
+1. Reads the pasted job description, or fetches a public job listing URL.
+2. Sends the real job content to DeepSeek.
+3. Analyzes the role against Abdullah's resume profile.
+4. Appends the result to Google Sheets through a free Google Apps Script webhook.
+5. Generates a tailored application email draft.
+6. Lets you copy the draft or open a Gmail compose window.
+
+The app validates input before saving. If the text or URL does not contain enough real job detail, it will not save a row or generate a draft.
+
+URL note: LinkedIn and some job boards block automated public reads. If a URL cannot be read, paste the job description text instead.
 
 ## Google Sheet Columns
 

@@ -18,8 +18,8 @@
         </div>
 
         <form id="jobForm" class="composer">
-          <label for="jobText">Paste job description</label>
-          <textarea id="jobText" name="jobText" placeholder="Paste the full job post here, including company, role, contact email, URL, and description if available."></textarea>
+          <label for="jobText">Paste a job description or job listing URL</label>
+          <textarea id="jobText" name="jobText" placeholder="Paste a full job post, or paste only a public job listing URL. LinkedIn may block automatic reading, so paste the description if the URL cannot be read."></textarea>
           <button type="submit">Analyze & Save</button>
         </form>
 
@@ -39,7 +39,13 @@
           </article>
 
           <article>
-            <h2>Application Draft</h2>
+            <div class="article-header">
+              <h2>Application Draft</h2>
+              <div class="actions">
+                <button id="copyDraft" class="secondary" type="button">Copy</button>
+                <button id="openGmail" class="secondary" type="button">Open in Gmail</button>
+              </div>
+            </div>
             <p id="subject" class="subject"></p>
             <div id="emailBody" class="email-body"></div>
           </article>

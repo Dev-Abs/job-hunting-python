@@ -6,7 +6,10 @@ const details = document.querySelector("#details");
 const score = document.querySelector("#score");
 const subject = document.querySelector("#subject");
 const emailBody = document.querySelector("#emailBody");
+const copyDraft = document.querySelector("#copyDraft");
+const openGmail = document.querySelector("#openGmail");
 const button = form.querySelector("button");
+let currentDraft = null;
 
 const detailKeys = [
   "Company",
@@ -31,6 +34,7 @@ function showMessage(text, isError = false) {
 
 function renderResult(data) {
   const analysis = data.analysis;
+  currentDraft = data.email_draft;
   score.textContent = `${analysis["Match Score"]}/100`;
   details.innerHTML = "";
 
@@ -47,11 +51,33 @@ function renderResult(data) {
   result.hidden = false;
 }
 
+function draftText() {
+  if (!currentDraft) return "";
+  return `Subject: ${currentDraft.subject}\n\n${currentDraft.plain_body}`;
+}
+
+copyDraft.addEventListener("click", async () => {
+  if (!currentDraft) return;
+  await navigator.clipboard.writeText(draftText());
+  showMessage("Draft copied to clipboard.");
+});
+
+openGmail.addEventListener("click", () => {
+  if (!currentDraft) return;
+  const params = new URLSearchParams({
+    view: "cm",
+    fs: "1",
+    su: currentDraft.subject,
+    body: currentDraft.plain_body
+  });
+  window.open(`https://mail.google.com/mail/?${params.toString()}`, "_blank", "noopener,noreferrer");
+});
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const jobText = textarea.value.trim();
-  if (jobText.length < 40) {
-    showMessage("Paste a fuller job description first.", true);
+  if (jobText.length < 12) {
+    showMessage("Paste a job description or a job listing URL first.", true);
     return;
   }
 
@@ -68,7 +94,8 @@ form.addEventListener("submit", async (event) => {
     if (!response.ok || !data.ok) {
       throw new Error(data.error || "Something went wrong.");
     }
-    showMessage("Saved to Google Sheets. Draft generated below.");
+    const sourceLabel = data.source_type === "url" ? "URL read, analyzed, and saved." : "Job description analyzed and saved.";
+    showMessage(`${sourceLabel} Draft generated below.`);
     renderResult(data);
   } catch (error) {
     showMessage(error.message, true);
