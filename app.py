@@ -274,7 +274,7 @@ Rules:
     return result
 
 
-def append_to_sheet(result: Dict[str, str]) -> None:
+def append_to_sheet(result: Dict[str, str]) -> Dict[str, Any]:
     webhook_url = env_required("GOOGLE_SCRIPT_WEBHOOK_URL")
     response = requests.post(
         webhook_url,
@@ -289,8 +289,7 @@ def append_to_sheet(result: Dict[str, str]) -> None:
     payload = response.json()
     if not payload.get("ok"):
         raise RuntimeError(payload.get("error", "Google Apps Script returned an error."))
-    if payload.get("skipped"):
-        raise RuntimeError(payload.get("message", "This job already exists in the tracker."))
+    return payload
 
 
 def append_many_to_sheet(results: List[Dict[str, str]]) -> Dict[str, Any]:
@@ -503,10 +502,11 @@ def heuristic_result_from_candidate(candidate: Dict[str, str]) -> Dict[str, str]
     }
 
 
-def discover_best_jobs() -> Dict[str, Any]:
+def discover_best_jobs(save_matches: bool) -> Dict[str, Any]:
     min_score = parse_int_env("DISCOVERY_MIN_SCORE", 55)
     save_limit = parse_int_env("DISCOVERY_SAVE_LIMIT", 8)
     fallback_save_count = parse_int_env("DISCOVERY_FALLBACK_SAVE_COUNT", 5)
+    dashboard_limit = parse_int_env("DISCOVERY_DASHBOARD_LIMIT", 30)
     candidates = discover_candidate_pool()
     analyzed = []
     errors = []
@@ -537,7 +537,7 @@ def discover_best_jobs() -> Dict[str, Any]:
             job["Notes"] = f"{job['Notes']} Saved by fallback because no jobs crossed the configured threshold."
 
     sheet_result = {"inserted": 0, "skipped": 0}
-    if selected:
+    if save_matches and selected:
         sheet_result = append_many_to_sheet(selected)
 
     return {
@@ -547,10 +547,11 @@ def discover_best_jobs() -> Dict[str, Any]:
         "fallback_used": fallback_used,
         "threshold": min_score,
         "selected": len(selected),
-        "saved": sheet_result.get("inserted", len(selected)),
+        "saved": sheet_result.get("inserted", 0),
         "skipped": sheet_result.get("skipped", 0),
+        "auto_saved": save_matches,
         "sheet": sheet_result,
-        "jobs": selected,
+        "jobs": (selected if save_matches else analyzed[:dashboard_limit]),
         "errors": errors[:5],
     }
 
@@ -620,13 +621,15 @@ def analyze():
         result = analyze_with_deepseek(prepared_input["analysis_text"])
         if result["Job URL"] == "Not specified" and prepared_input["source_type"] == "url":
             result["Job URL"] = prepared_input["source_input"]
-        append_to_sheet(result)
+        sheet_result = append_to_sheet(result)
         email_draft = make_email_draft(result)
         return jsonify({
             "ok": True,
             "analysis": result,
             "email_draft": email_draft,
             "source_type": prepared_input["source_type"],
+            "saved": sheet_result.get("inserted", 1) > 0,
+            "skipped": sheet_result.get("skipped", 0),
         })
     except ValueError as error:
         return jsonify({"ok": False, "error": str(error), "saved": False}), 422
@@ -637,8 +640,35 @@ def analyze():
 @app.route("/api/discover", methods=["GET", "POST"])
 def discover():
     try:
-        result = discover_best_jobs()
+        result = discover_best_jobs(save_matches=request.method == "GET")
         return jsonify({"ok": True, **result})
+    except Exception as error:
+        return jsonify({"ok": False, "error": str(error)}), 500
+
+
+@app.post("/api/save-job")
+def save_job():
+    payload = request.get_json(silent=True) or {}
+    job = payload.get("job") or {}
+    if not isinstance(job, dict):
+        return jsonify({"ok": False, "error": "Invalid job payload."}), 400
+
+    cleaned_job = {}
+    for column in SHEET_COLUMNS:
+        value = job.get(column, "Not specified")
+        cleaned_job[column] = str(value).strip() if value is not None and str(value).strip() else "Not specified"
+
+    if cleaned_job["Job Title"] == "Not specified" and cleaned_job["Company"] == "Not specified":
+        return jsonify({"ok": False, "error": "Cannot save a job without title or company."}), 400
+
+    try:
+        sheet_result = append_to_sheet(cleaned_job)
+        return jsonify({
+            "ok": True,
+            "saved": sheet_result.get("inserted", 1) > 0,
+            "skipped": sheet_result.get("skipped", 0),
+            "message": "Saved to Google Sheets." if not sheet_result.get("skipped") else "Already existed in Google Sheets.",
+        })
     except Exception as error:
         return jsonify({"ok": False, "error": str(error)}), 500
 

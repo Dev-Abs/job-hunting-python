@@ -252,13 +252,24 @@ article {
 
 .job-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 14px;
-  padding: 12px;
+  padding: 14px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   background: #f8fafc;
+}
+
+.job-main {
+  min-width: 0;
+}
+
+.job-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .job-item strong,
@@ -270,6 +281,36 @@ article {
   margin-top: 3px;
   color: #64748b;
   font-size: 0.9rem;
+}
+
+.job-fit {
+  margin: 9px 0;
+  color: #334155;
+  line-height: 1.45;
+}
+
+.job-tags {
+  color: #475569;
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
+.score-badge,
+.status-chip {
+  border-radius: 999px;
+  font-weight: 800;
+  padding: 5px 8px;
+}
+
+.score-badge {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.status-chip {
+  background: #ecfdf5;
+  color: #047857;
+  font-size: 0.84rem;
 }
 
 .job-meta {

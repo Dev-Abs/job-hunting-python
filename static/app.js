@@ -17,6 +17,7 @@ const discoveryList = document.querySelector("#discoveryList");
 const submitButton = form.querySelector("button[type='submit']");
 let currentDraft = null;
 let inputMode = "description";
+let discoveredJobs = [];
 
 const detailKeys = [
   "Company",
@@ -139,7 +140,8 @@ form.addEventListener("submit", async (event) => {
 
 function renderDiscovery(data) {
   const jobs = data.jobs || [];
-  discoveryCount.textContent = `${data.saved || 0} saved`;
+  discoveredJobs = jobs;
+  discoveryCount.textContent = data.auto_saved ? `${data.saved || 0} saved` : `${jobs.length} ranked`;
   discoveryList.innerHTML = "";
 
   if (!jobs.length) {
@@ -157,42 +159,84 @@ function renderDiscovery(data) {
     <span>DeepSeek: ${data.deepseek_success || 0}</span>
     <span>Fallback: ${data.fallback_used || 0}</span>
     <span>Skipped duplicates: ${data.skipped || 0}</span>
+    <span>${data.auto_saved ? "Auto-saved" : "Review mode"}</span>
   `;
   discoveryList.appendChild(summary);
 
-  for (const job of jobs) {
+  jobs.forEach((job, index) => {
     const item = document.createElement("div");
     item.className = "job-item";
-    const link = job["Job URL"] && job["Job URL"] !== "Not specified"
-      ? `<a href="${job["Job URL"]}" target="_blank" rel="noopener noreferrer">Open listing</a>`
-      : "";
+    const link = job["Job URL"] && job["Job URL"] !== "Not specified";
     item.innerHTML = `
-      <div>
-        <strong>${job["Job Title"] || "Not specified"}</strong>
-        <span>${job["Company"] || "Not specified"} · ${job["Location"] || "Not specified"}</span>
+      <div class="job-main">
+        <div class="job-title-row">
+          <strong></strong>
+          <span class="score-badge"></span>
+        </div>
+        <span class="job-subtitle"></span>
+        <p class="job-fit"></p>
+        <div class="job-tags"></div>
       </div>
       <div class="job-meta">
-        <span>${job["Match Score"] || "--"}/100</span>
-        <span>${job["Status"] || "Discovered"}</span>
-        ${link}
+        <span class="status-chip"></span>
+        ${link ? `<a class="open-link" target="_blank" rel="noopener noreferrer">Open listing</a>` : ""}
+        <button class="secondary save-job" type="button" data-index="${index}">Save</button>
       </div>
     `;
+    item.querySelector("strong").textContent = job["Job Title"] || "Not specified";
+    item.querySelector(".score-badge").textContent = `${job["Match Score"] || "--"}/100`;
+    item.querySelector(".job-subtitle").textContent = `${job["Company"] || "Not specified"} · ${job["Location"] || "Not specified"} · ${job["Remote Type"] || "Not specified"}`;
+    item.querySelector(".job-fit").textContent = job["Why Good Fit"] || "No summary available.";
+    item.querySelector(".job-tags").textContent = job["Required Skills"] || "Skills not specified";
+    item.querySelector(".status-chip").textContent = job["Status"] || "Discovered";
+    if (link) {
+      item.querySelector(".open-link").href = job["Job URL"];
+    }
     discoveryList.appendChild(item);
-  }
+  });
 
   discoveryResult.hidden = false;
 }
 
+discoveryList.addEventListener("click", async (event) => {
+  const button = event.target.closest(".save-job");
+  if (!button) return;
+
+  const index = Number(button.dataset.index);
+  const job = discoveredJobs[index];
+  if (!job) return;
+
+  button.disabled = true;
+  button.textContent = "Saving...";
+  try {
+    const response = await fetch("/api/save-job", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ job })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || "Save failed.");
+    }
+    button.textContent = data.skipped ? "Already saved" : "Saved";
+    showMessage(data.message || "Saved to Google Sheets.");
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = "Save";
+    showMessage(error.message, true);
+  }
+});
+
 discoverJobs.addEventListener("click", async () => {
   discoverJobs.disabled = true;
-  showMessage("Searching remote/worldwide/Pakistan jobs, ranking matches, and saving strong fits...");
+  showMessage("Searching remote/worldwide/Pakistan jobs and ranking matches for review...");
   try {
     const response = await fetch("/api/discover", { method: "POST" });
     const data = await response.json();
     if (!response.ok || !data.ok) {
       throw new Error(data.error || "Discovery failed.");
     }
-    showMessage(`Discovery complete. Saved ${data.saved || 0}, skipped ${data.skipped || 0} duplicates, checked ${data.candidates_checked || 0} candidates.`);
+    showMessage(`Discovery complete. Found ${data.jobs?.length || 0} ranked jobs from ${data.candidates_checked || 0} candidates. Click Save on the ones you want.`);
     renderDiscovery(data);
   } catch (error) {
     showMessage(error.message, true);

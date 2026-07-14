@@ -10,13 +10,31 @@ You paste a job description or a public job listing URL into the web chat-style 
 4. Appends the result to Google Sheets through a free Google Apps Script webhook.
 5. Generates a tailored application email draft.
 6. Lets you copy the draft or open a Gmail compose window.
-7. Can automatically discover strong-match jobs daily from public job sources.
+7. Can discover ranked jobs from public sources.
+8. Manual discovery shows a dashboard with Save buttons.
+9. Scheduled discovery auto-saves the best matches.
 
 The app validates input before saving. If the text or URL does not contain enough real job detail, it will not save a row or generate a draft.
 
 URL note: LinkedIn and some job boards block automated public reads. If a URL cannot be read, paste the job description text instead.
 
-Auto-discovery looks for remote/worldwide jobs, relocation-friendly roles where visible, and Pakistan onsite roles when available from public sources. It ranks jobs using DeepSeek and saves only the strongest matches.
+Auto-discovery looks for remote/worldwide jobs, relocation-friendly roles where visible, and Pakistan onsite roles when available from public sources.
+
+Manual behavior:
+
+```text
+Find Matching Jobs Now
+→ returns a dashboard of ranked jobs
+→ you choose which jobs to save
+```
+
+Scheduled behavior:
+
+```text
+Vercel Cron
+→ ranks jobs automatically
+→ saves the best matches automatically
+```
 
 ## Google Sheet Columns
 
@@ -191,7 +209,7 @@ Daily auto-discovery is configured in `vercel.json`:
 0 4 * * *
 ```
 
-That means Vercel calls `/api/discover` daily at 04:00 UTC. You can also run discovery manually from the web page using **Find Matching Jobs Now**.
+That means Vercel calls `/api/discover` daily at 04:00 UTC. Cron uses `GET`, so it auto-saves top matches. The web page uses `POST`, so it only shows ranked jobs for review until you click **Save**.
 
 This project includes:
 
