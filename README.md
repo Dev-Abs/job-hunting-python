@@ -6,12 +6,12 @@ You paste a job description into the web chat-style form. The app:
 
 1. Sends the job description to DeepSeek.
 2. Analyzes the role against Abdullah's resume profile.
-3. Appends the result to Google Sheets.
+3. Appends the result to Google Sheets through a free Google Apps Script webhook.
 4. Generates a tailored application email draft.
 
 ## Google Sheet Columns
 
-Create a Google Sheet with a tab named `Sheet1`. The app can create/update the header row automatically.
+Create a Google Sheet with a tab named `Sheet1`. The Apps Script below can create/update the header row automatically.
 
 Columns:
 
@@ -42,20 +42,55 @@ Set these in your deployment platform:
 DEEPSEEK_API_KEY
 DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
 DEEPSEEK_MODEL=deepseek-chat
-GOOGLE_SHEET_ID
-GOOGLE_WORKSHEET_NAME=Sheet1
-GOOGLE_SERVICE_ACCOUNT_JSON
+GOOGLE_SCRIPT_WEBHOOK_URL
 ```
 
-`GOOGLE_SERVICE_ACCOUNT_JSON` must be the full service account JSON pasted as one environment variable.
+## Google Apps Script Setup
 
-Important: share your Google Sheet with the service account email, usually something like:
+This avoids Google Cloud service accounts and billing setup.
 
-```text
-name@project-id.iam.gserviceaccount.com
+1. Open your Google Sheet.
+2. Go to **Extensions > Apps Script**.
+3. Paste this code:
+
+```javascript
+const SHEET_NAME = "Sheet1";
+
+function doPost(e) {
+  try {
+    const payload = JSON.parse(e.postData.contents);
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+    const columns = payload.columns || [];
+    const rowObject = payload.row || {};
+
+    const existingHeader = sheet.getRange(1, 1, 1, columns.length).getValues()[0];
+    const headerMissing = existingHeader.join("") === "" || existingHeader.join("|") !== columns.join("|");
+
+    if (headerMissing) {
+      sheet.getRange(1, 1, 1, columns.length).setValues([columns]);
+      sheet.setFrozenRows(1);
+    }
+
+    const row = columns.map((column) => rowObject[column] || "Not specified");
+    sheet.appendRow(row);
+
+    return ContentService
+      .createTextOutput(JSON.stringify({ ok: true }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (error) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ ok: false, error: String(error) }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
 ```
 
-Give it Editor access.
+4. Click **Deploy > New deployment**.
+5. Select type: **Web app**.
+6. Set **Execute as**: `Me`.
+7. Set **Who has access**: `Anyone`.
+8. Click **Deploy**.
+9. Copy the Web app URL. This is your `GOOGLE_SCRIPT_WEBHOOK_URL`.
 
 ## Local Run
 
@@ -71,8 +106,7 @@ PowerShell env var example:
 
 ```powershell
 $env:DEEPSEEK_API_KEY="your_key"
-$env:GOOGLE_SHEET_ID="your_sheet_id"
-$env:GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account", "...":"..."}'
+$env:GOOGLE_SCRIPT_WEBHOOK_URL="your_apps_script_web_app_url"
 python app.py
 ```
 
@@ -125,6 +159,6 @@ The included `render.yaml` can also be used as a Render Blueprint.
 ## Notes
 
 - This app does not store your DeepSeek key in code.
-- This app does not store your Google service account in code.
-- If Google Sheets fails, check that the sheet is shared with the service account email.
+- This app does not need a Google Cloud billing account.
+- If Google Sheets fails, check that the Apps Script deployment access is set to `Anyone`.
 - If DeepSeek fails, check `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`, and `DEEPSEEK_MODEL`.

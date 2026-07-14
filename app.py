@@ -2,12 +2,10 @@ import json
 import os
 import re
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict
 
-import gspread
 import requests
 from flask import Flask, jsonify, render_template, request
-from google.oauth2.service_account import Credentials
 
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -160,30 +158,20 @@ Rules:
     return normalize_result(extract_json_object(content), job_text)
 
 
-def get_worksheet():
-    sheet_id = env_required("GOOGLE_SHEET_ID")
-    worksheet_name = os.environ.get("GOOGLE_WORKSHEET_NAME", "Sheet1")
-    service_account_json = env_required("GOOGLE_SERVICE_ACCOUNT_JSON")
-    service_account_info = json.loads(service_account_json)
-
-    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
-    credentials = Credentials.from_service_account_info(service_account_info, scopes=scopes)
-    client = gspread.authorize(credentials)
-    spreadsheet = client.open_by_key(sheet_id)
-    return spreadsheet.worksheet(worksheet_name)
-
-
-def ensure_header(worksheet) -> None:
-    values = worksheet.row_values(1)
-    if values[: len(SHEET_COLUMNS)] != SHEET_COLUMNS:
-        worksheet.update("A1:P1", [SHEET_COLUMNS])
-
-
 def append_to_sheet(result: Dict[str, str]) -> None:
-    worksheet = get_worksheet()
-    ensure_header(worksheet)
-    row = [result.get(column, "Not specified") for column in SHEET_COLUMNS]
-    worksheet.append_row(row, value_input_option="USER_ENTERED")
+    webhook_url = env_required("GOOGLE_SCRIPT_WEBHOOK_URL")
+    response = requests.post(
+        webhook_url,
+        json={
+            "columns": SHEET_COLUMNS,
+            "row": result,
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not payload.get("ok"):
+        raise RuntimeError(payload.get("error", "Google Apps Script returned an error."))
 
 
 def make_email_draft(result: Dict[str, str]) -> Dict[str, str]:
