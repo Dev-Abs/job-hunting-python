@@ -230,6 +230,26 @@ article {
   gap: 10px;
 }
 
+.muted {
+  color: #64748b;
+  margin: 0;
+}
+
+.discovery-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.discovery-summary span {
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #334155;
+  font-size: 0.84rem;
+  font-weight: 700;
+  padding: 6px 9px;
+}
+
 .job-item {
   display: flex;
   align-items: center;

@@ -141,6 +141,10 @@ def result_score(result: Dict[str, str]) -> int:
         return 0
 
 
+def normalize_score(value: int) -> int:
+    return max(0, min(100, value))
+
+
 def is_url_only(value: str) -> bool:
     return bool(re.fullmatch(r"https?://\S+", value.strip(), flags=re.IGNORECASE))
 
@@ -452,33 +456,99 @@ def discover_candidate_pool() -> List[Dict[str, str]]:
     return list(unique.values())[:max_jobs]
 
 
+def heuristic_result_from_candidate(candidate: Dict[str, str]) -> Dict[str, str]:
+    profile = load_profile()
+    text = candidate_text(candidate).lower()
+    profile_keywords = profile.get("skills", []) + profile.get("target_roles", [])
+    hits = []
+    for keyword in profile_keywords:
+        clean = str(keyword).strip()
+        if clean and clean.lower() in text:
+            hits.append(clean)
+
+    strong_terms = [
+        "ai", "automation", "python", "javascript", "react", "node", "mern",
+        "flutter", "machine learning", "ai agent", "api", "cloud", "junior",
+        "intern", "trainee", "remote", "worldwide", "relocation", "pakistan"
+    ]
+    term_hits = [term for term in strong_terms if term in text]
+    all_hits = list(dict.fromkeys(hits + term_hits))
+
+    senior_penalty_terms = ["senior", "staff", "principal", "lead ", "8+ years", "10+ years"]
+    penalty = 18 if any(term in text for term in senior_penalty_terms) else 0
+    score = normalize_score(45 + min(len(all_hits) * 5, 40) - penalty)
+
+    location = candidate.get("location", "Not specified") or "Not specified"
+    remote_type = "Remote" if "remote" in text or "worldwide" in text else "Onsite"
+    if "hybrid" in text:
+        remote_type = "Hybrid"
+
+    return {
+        "Date Added": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "Company": candidate.get("company", "Not specified") or "Not specified",
+        "Job Title": candidate.get("title", "Not specified") or "Not specified",
+        "Location": location,
+        "Remote Type": remote_type,
+        "Salary": candidate.get("salary", "Not specified") or "Not specified",
+        "Job URL": candidate.get("url", "Not specified") or "Not specified",
+        "Required Skills": ", ".join(all_hits[:12]) if all_hits else candidate.get("tags", "Not specified"),
+        "Match Score": str(score),
+        "Why Good Fit": "This role appears relevant based on public listing keywords and Abdullah's profile.",
+        "Missing Skills": "Needs manual review",
+        "Status": "Discovered",
+        "Next Action": "Review the listing and apply if the role is suitable.",
+        "Contact Email": "Not specified",
+        "Cover Letter Angle": "Lead with software development, AI automation, and practical project experience.",
+        "Notes": f"Auto-discovered from {candidate.get('source', 'public job source')} using fallback scoring.",
+    }
+
+
 def discover_best_jobs() -> Dict[str, Any]:
-    min_score = parse_int_env("DISCOVERY_MIN_SCORE", 70)
+    min_score = parse_int_env("DISCOVERY_MIN_SCORE", 55)
     save_limit = parse_int_env("DISCOVERY_SAVE_LIMIT", 8)
+    fallback_save_count = parse_int_env("DISCOVERY_FALLBACK_SAVE_COUNT", 5)
+    candidates = discover_candidate_pool()
     analyzed = []
     errors = []
+    deepseek_success = 0
+    fallback_used = 0
 
-    for candidate in discover_candidate_pool():
+    for candidate in candidates:
         try:
             result = analyze_with_deepseek(candidate_text(candidate))
             if result["Job URL"] == "Not specified":
                 result["Job URL"] = candidate["url"]
             result["Status"] = "Discovered"
             result["Notes"] = f"Auto-discovered from {candidate['source']}."
-            if result_score(result) >= min_score:
-                analyzed.append(result)
+            analyzed.append(result)
+            deepseek_success += 1
         except Exception as error:
+            fallback = heuristic_result_from_candidate(candidate)
+            analyzed.append(fallback)
+            fallback_used += 1
             errors.append({"candidate": candidate.get("title", "Unknown"), "error": str(error)})
 
     analyzed.sort(key=result_score, reverse=True)
-    selected = analyzed[:save_limit]
+    selected = [job for job in analyzed if result_score(job) >= min_score][:save_limit]
+    if not selected and analyzed:
+        selected = analyzed[:fallback_save_count]
+        for job in selected:
+            job["Status"] = "Needs Review"
+            job["Notes"] = f"{job['Notes']} Saved by fallback because no jobs crossed the configured threshold."
+
     sheet_result = {"inserted": 0, "skipped": 0}
     if selected:
         sheet_result = append_many_to_sheet(selected)
 
     return {
-        "found_candidates": len(analyzed),
-        "saved": len(selected),
+        "candidates_checked": len(candidates),
+        "analyzed": len(analyzed),
+        "deepseek_success": deepseek_success,
+        "fallback_used": fallback_used,
+        "threshold": min_score,
+        "selected": len(selected),
+        "saved": sheet_result.get("inserted", len(selected)),
+        "skipped": sheet_result.get("skipped", 0),
         "sheet": sheet_result,
         "jobs": selected,
         "errors": errors[:5],

@@ -57,8 +57,9 @@ GOOGLE_SCRIPT_WEBHOOK_URL
 Optional auto-discovery settings:
 
 ```text
-DISCOVERY_MIN_SCORE=70
+DISCOVERY_MIN_SCORE=55
 DISCOVERY_SAVE_LIMIT=8
+DISCOVERY_FALLBACK_SAVE_COUNT=5
 DISCOVERY_MAX_CANDIDATES=30
 DISCOVERY_QUERIES=ai automation,ai agent,python automation,junior software engineer,mern developer,react node,flutter developer,machine learning intern,digital transformation
 ```

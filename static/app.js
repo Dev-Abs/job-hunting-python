@@ -143,8 +143,22 @@ function renderDiscovery(data) {
   discoveryList.innerHTML = "";
 
   if (!jobs.length) {
-    discoveryList.innerHTML = "<p>No strong new matches found this time.</p>";
+    discoveryList.innerHTML = `
+      <p>No jobs were saved this time.</p>
+      <p class="muted">Checked ${data.candidates_checked || 0} candidates, analyzed ${data.analyzed || 0}, threshold ${data.threshold || "--"}.</p>
+    `;
   }
+
+  const summary = document.createElement("div");
+  summary.className = "discovery-summary";
+  summary.innerHTML = `
+    <span>Checked: ${data.candidates_checked || 0}</span>
+    <span>Analyzed: ${data.analyzed || 0}</span>
+    <span>DeepSeek: ${data.deepseek_success || 0}</span>
+    <span>Fallback: ${data.fallback_used || 0}</span>
+    <span>Skipped duplicates: ${data.skipped || 0}</span>
+  `;
+  discoveryList.appendChild(summary);
 
   for (const job of jobs) {
     const item = document.createElement("div");
@@ -159,6 +173,7 @@ function renderDiscovery(data) {
       </div>
       <div class="job-meta">
         <span>${job["Match Score"] || "--"}/100</span>
+        <span>${job["Status"] || "Discovered"}</span>
         ${link}
       </div>
     `;
@@ -177,7 +192,7 @@ discoverJobs.addEventListener("click", async () => {
     if (!response.ok || !data.ok) {
       throw new Error(data.error || "Discovery failed.");
     }
-    showMessage(`Discovery complete. Saved ${data.saved || 0} best matches to Google Sheets.`);
+    showMessage(`Discovery complete. Saved ${data.saved || 0}, skipped ${data.skipped || 0} duplicates, checked ${data.candidates_checked || 0} candidates.`);
     renderDiscovery(data);
   } catch (error) {
     showMessage(error.message, true);
